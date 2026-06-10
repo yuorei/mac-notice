@@ -5,6 +5,8 @@ struct NotificationArgs {
     var subtitle: String?
     var body: String?
     var image: String?
+    var icon: String?
+    var sender: String?
     var sound: String?
     var delay: Double?
     var identifier: String?
@@ -31,6 +33,10 @@ enum CommandLineParser {
                 args.body = iterator.next()
             case "--image", "-i":
                 args.image = iterator.next()
+            case "--icon":
+                args.icon = iterator.next()
+            case "--sender":
+                args.sender = iterator.next()
             case "--sound":
                 args.sound = iterator.next()
             case "--delay":
