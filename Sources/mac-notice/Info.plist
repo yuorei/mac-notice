@@ -3,7 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.yuorei.mac-notice</string>
+    <string>dev.yuorei.mac-notice</string>
+    <key>CFBundleExecutable</key>
+    <string>mac-notice</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleName</key>
     <string>mac-notice</string>
     <key>CFBundleVersion</key>

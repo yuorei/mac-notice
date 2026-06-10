@@ -1,5 +1,6 @@
-import Foundation
 import AppKit
+import UserNotifications
+import BundleHook
 
 let args = CommandLineParser.parse()
 
@@ -8,44 +9,75 @@ if args.showHelp {
     exit(0)
 }
 
-sendNotification(args: args)
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
 
-func sendNotification(args: NotificationArgs) {
-    let notification = NSUserNotification()
-    notification.title = args.title
-    notification.subtitle = args.subtitle
-    notification.informativeText = args.body
+let center = UNUserNotificationCenter.current()
+let delegate = NotificationDelegate()
+center.delegate = delegate
+
+center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+    if let error = error {
+        fputs("Error: 許可リクエスト中にエラー: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+    guard granted else {
+        fputs("Error: 通知が許可されていません。システム設定 > 通知 で許可してください。\n", stderr)
+        exit(1)
+    }
+
+    // 権限確認後にBundle IDを偽装（通知の左側アイコンが変わる）
+    if let senderBundleID = args.sender {
+        InstallFakeBundleIdentifierHook(senderBundleID)
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = args.title
+    if let subtitle = args.subtitle { content.subtitle = subtitle }
+    if let body = args.body { content.body = body }
 
     if let soundName = args.sound {
-        if soundName == "default" {
-            notification.soundName = NSUserNotificationDefaultSoundName
-        } else {
-            notification.soundName = soundName
-        }
+        content.sound = soundName == "default"
+            ? .default
+            : UNNotificationSound(named: UNNotificationSoundName(soundName))
     }
 
+    // 右側の添付画像
     if let imagePath = args.image {
-        let expandedPath = (imagePath as NSString).expandingTildeInPath
-        if let image = NSImage(contentsOfFile: expandedPath) {
-            notification.contentImage = image
+        let url = URL(fileURLWithPath: (imagePath as NSString).expandingTildeInPath)
+        if FileManager.default.fileExists(atPath: url.path) {
+            let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: tmpURL)
+            try? FileManager.default.copyItem(at: url, to: tmpURL)
+            if let attachment = try? UNNotificationAttachment(identifier: "image", url: tmpURL) {
+                content.attachments = [attachment]
+            } else {
+                fputs("Warning: 画像の添付に失敗しました\n", stderr)
+            }
         } else {
-            fputs("Warning: 画像の読み込みに失敗しました: \(imagePath)\n", stderr)
+            fputs("Warning: 画像ファイルが見つかりません: \(imagePath)\n", stderr)
         }
     }
 
-    notification.identifier = args.identifier ?? UUID().uuidString
+    let delay = args.delay ?? 0.1
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
+    let identifier = args.identifier ?? UUID().uuidString
+    let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
-    let center = NSUserNotificationCenter.default
-    center.deliver(notification)
-
-    if args.verbose {
-        print("通知を送信しました (ID: \(notification.identifier ?? "unknown"))")
+    center.add(request) { error in
+        if let error = error {
+            fputs("Error: 通知の送信に失敗しました: \(error.localizedDescription)\n", stderr)
+        } else if args.verbose {
+            print("通知を送信しました (ID: \(identifier))")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.8) {
+            exit(0)
+        }
     }
-
-    // 通知配信を待つ
-    let delay = args.delay ?? 0.5
-    Thread.sleep(forTimeInterval: delay + 0.3)
 }
+
+app.run()
 
 func printHelp() {
     print("""
@@ -60,20 +92,17 @@ func printHelp() {
     オプション:
       --subtitle, -s <text>     サブタイトル
       --body, -b <text>         本文メッセージ
-      --image, -i <path>        添付画像のパス (JPEG, PNG, GIF, HEIC)
-      --sound <name>            通知音 (default, または /Library/Sounds のファイル名)
-                                例: --sound Funk, --sound Glass, --sound default
-                                利用可能な音: Basso Blow Bottle Frog Funk Glass Hero
-                                             Morse Ping Pop Purr Sosumi Submarine Tink
-      --delay <seconds>         通知の表示前に待機する秒数 (デフォルト: 0.5)
+      --image, -i <path>        右側の添付画像 (JPEG, PNG, GIF, HEIC)
+      --sender <bundleID>       別アプリのアイコンを左側に使う (例: com.apple.Terminal)
+      --sound <name>            通知音 (default, またはサウンド名)
+      --delay <seconds>         通知の待機秒数 (デフォルト: 0.1)
       --identifier <id>         通知の識別子 (重複排除に使用)
       --verbose, -v             詳細ログを表示
       --help, -h                このヘルプを表示
 
     使用例:
       mac-notice --title "ビルド完了"
-      mac-notice --title "エラー" --body "ビルドに失敗しました" --sound Basso
-      mac-notice --title "完了" --image ~/Desktop/done.png --sound default
-      mac-notice --title "リマインダー" --subtitle "5分後" --body "ミーティング開始"
+      mac-notice --title "完了" --image ~/done.png --sound Glass
+      mac-notice --title "通知" --sender com.apple.Terminal
     """)
 }

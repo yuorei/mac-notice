@@ -7,10 +7,13 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "mac-notice",
-            path: "Sources/mac-notice",
-            linkerSettings: [
-                .linkedFramework("AppKit")
-            ]
+            dependencies: ["BundleHook"],
+            path: "Sources/mac-notice"
+        ),
+        .target(
+            name: "BundleHook",
+            path: "Sources/BundleHook",
+            publicHeadersPath: "include"
         ),
         .testTarget(
             name: "mac-noticeTests",

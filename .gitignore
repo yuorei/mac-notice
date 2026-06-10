@@ -8,3 +8,6 @@ DerivedData/
 .netrc
 *.o
 *.d
+
+# アイコン画像はコミットしない（各自で配置）
+Resources/icon.png
