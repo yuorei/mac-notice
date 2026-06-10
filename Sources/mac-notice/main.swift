@@ -96,25 +96,54 @@ func resolveSound(_ soundArg: String) -> UNNotificationSound? {
         return .default
     }
 
-    let supportedExtensions = ["aiff", "aif", "wav", "caf"]
-    guard supportedExtensions.contains(sourceURL.pathExtension.lowercased()) else {
-        fputs("Warning: 未対応の音声形式です (\(sourceURL.pathExtension))。対応形式: \(supportedExtensions.joined(separator: ", "))。デフォルト音を使用します\n", stderr)
+    let soundsDir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Sounds")
+    do {
+        try FileManager.default.createDirectory(at: soundsDir, withIntermediateDirectories: true)
+    } catch {
+        fputs("Warning: ~/Library/Sounds の作成に失敗しました: \(error.localizedDescription)。デフォルト音を使用します\n", stderr)
         return .default
     }
 
-    let soundsDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Sounds")
-    let destURL = soundsDir.appendingPathComponent("mac-notice-\(sourceURL.lastPathComponent)")
+    let nativeExtensions = ["aiff", "aif", "wav", "caf"]
+    let ext = sourceURL.pathExtension.lowercased()
+    let destURL: URL
 
-    do {
-        try FileManager.default.createDirectory(at: soundsDir, withIntermediateDirectories: true)
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
+    if nativeExtensions.contains(ext) {
+        // そのまま再生できる形式 → コピーのみ
+        destURL = soundsDir.appendingPathComponent("mac-notice-\(sourceURL.lastPathComponent)")
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destURL)
+        } catch {
+            fputs("Warning: 音声ファイルのコピーに失敗しました: \(error.localizedDescription)。デフォルト音を使用します\n", stderr)
+            return .default
         }
-        try FileManager.default.copyItem(at: sourceURL, to: destURL)
-    } catch {
-        fputs("Warning: 音声ファイルのコピーに失敗しました: \(error.localizedDescription)。デフォルト音を使用します\n", stderr)
-        return .default
+    } else {
+        // mp3 / m4a / aac / flac 等 → afconvert で caf に変換
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        destURL = soundsDir.appendingPathComponent("mac-notice-\(baseName).caf")
+        try? FileManager.default.removeItem(at: destURL)
+
+        let convert = Process()
+        convert.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        convert.arguments = ["-f", "caff", "-d", "LEI16", sourceURL.path, destURL.path]
+        let errPipe = Pipe()
+        convert.standardError = errPipe
+        do {
+            try convert.run()
+            convert.waitUntilExit()
+        } catch {
+            fputs("Warning: afconvert の実行に失敗しました: \(error.localizedDescription)。デフォルト音を使用します\n", stderr)
+            return .default
+        }
+        guard convert.terminationStatus == 0 else {
+            let errOutput = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            fputs("Warning: 音声ファイルの変換に失敗しました (\(ext)): \(errOutput.trimmingCharacters(in: .whitespacesAndNewlines))。デフォルト音を使用します\n", stderr)
+            return .default
+        }
     }
 
     return UNNotificationSound(named: UNNotificationSoundName(destURL.lastPathComponent))
@@ -136,7 +165,7 @@ func printHelp() {
       --image, -i <path>        右側の添付画像 (JPEG, PNG, GIF, HEIC)
       --sender <bundleID>       別アプリのアイコンを左側に使う (例: com.apple.Terminal)
       --sound <name|path>       通知音 (default, サウンド名, または音声ファイルのパス)
-                                対応形式: aiff, aif, wav, caf (30秒以内)
+                                aiff/aif/wav/caf はそのまま、mp3/m4a等は自動変換 (30秒以内)
       --delay <seconds>         通知の待機秒数 (デフォルト: 0.1)
       --identifier <id>         通知の識別子 (重複排除に使用)
       --verbose, -v             詳細ログを表示
