@@ -14,6 +14,7 @@ app.setActivationPolicy(.accessory)
 
 let center = UNUserNotificationCenter.current()
 let delegate = NotificationDelegate()
+delegate.onClick = args.onClick
 center.delegate = delegate
 
 center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
@@ -66,11 +67,23 @@ center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error 
     center.add(request) { error in
         if let error = error {
             fputs("Error: 通知の送信に失敗しました: \(error.localizedDescription)\n", stderr)
-        } else if args.verbose {
+            exit(1)
+        }
+        if args.verbose {
             print("通知を送信しました (ID: \(identifier))")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.8) {
-            exit(0)
+        if args.onClick != nil {
+            let timeout = args.clickTimeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + timeout) {
+                if args.verbose {
+                    fputs("タイムアウト: \(timeout)秒以内にタップされませんでした\n", stderr)
+                }
+                exit(0)
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.8) {
+                exit(0)
+            }
         }
     }
 }
@@ -168,6 +181,8 @@ func printHelp() {
                                 aiff/aif/wav/caf はそのまま、mp3/m4a等は自動変換 (30秒以内)
       --delay <seconds>         通知の待機秒数 (デフォルト: 0.1)
       --identifier <id>         通知の識別子 (重複排除に使用)
+      --on-click <url|path>     通知タップ時に開くURL またはアプリ/ファイルのパス
+      --click-timeout <seconds> --on-click のタイムアウト秒数 (デフォルト: 60)
       --verbose, -v             詳細ログを表示
       --help, -h                このヘルプを表示
 
@@ -176,5 +191,7 @@ func printHelp() {
       mac-notice --title "完了" --image ~/done.png --sound Glass
       mac-notice --title "完了" --sound ~/Music/pikon.wav
       mac-notice --title "通知" --sender com.apple.Terminal
+      mac-notice --title "サイトを開く" --on-click "https://example.com"
+      mac-notice --title "アプリを開く" --on-click "/Applications/Safari.app"
     """)
 }

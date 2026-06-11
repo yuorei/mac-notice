@@ -10,6 +10,8 @@ struct NotificationArgs {
     var sound: String?
     var delay: Double?
     var identifier: String?
+    var onClick: String?
+    var clickTimeout: Double = 60.0
     var verbose: Bool = false
     var showHelp: Bool = false
 }
@@ -45,6 +47,12 @@ enum CommandLineParser {
                 }
             case "--identifier":
                 args.identifier = iterator.next()
+            case "--on-click":
+                args.onClick = iterator.next()
+            case "--click-timeout":
+                if let val = iterator.next(), let d = Double(val) {
+                    args.clickTimeout = d
+                }
             case "--verbose", "-v":
                 args.verbose = true
             default:
